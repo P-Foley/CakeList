@@ -10,62 +10,127 @@
 #import "CakeCell.h"
 
 @interface MasterViewController ()
-@property (strong, nonatomic) NSArray *objects;
+
+@property (strong, nonatomic) NSArray *cakes;
+
 @end
 
 @implementation MasterViewController
 
-- (void)viewDidLoad {
+- (void) viewDidLoad {
     [super viewDidLoad];
-    [self getData];
+    [self startCakeDataConnection];
 }
 
-#pragma mark - Table View
+-(void) startCakeDataConnection {
+    CakeDataDownloader *cakeDataDownloader = [[CakeDataDownloader alloc] initWithDataHandlerDelegate:self];
+    [cakeDataDownloader getCakeData];
+}
+
+#pragma mark - Get Cake Images
+-(void) downloadCakeImages {
+    __weak MasterViewController *weakSelf = self;
+
+    for (Cake *cake in weakSelf.cakes) {
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
+       ^{
+           NSData *imageData = [NSData dataWithContentsOfURL:cake.imageURL];
+           
+           dispatch_sync(dispatch_get_main_queue(), ^{
+               UIImage *cakeImage;
+               
+               //Check if we've already downloaded a cake image for another cake. Reuse the one we already have to save downloading the same thing twice
+               for (Cake *cakeWithPossibleDuplicateImage in weakSelf.cakes) {
+                   if ([cake.imageURL isEqual:cakeWithPossibleDuplicateImage.imageURL] && cakeWithPossibleDuplicateImage.image) {
+                       cakeImage = cakeWithPossibleDuplicateImage.image;
+                       break;
+                   }
+               }
+               
+               if (!cakeImage) {
+                   cakeImage = [UIImage imageWithData:imageData];
+               }
+               
+               if (cakeImage) {
+                   cake.image = cakeImage;
+                   [self.cakeTableView reloadData];
+               }
+           });
+       });
+    }
+}
+
+#pragma mark - Cake Info Downloader Delegate Methods
+-(void) cakeDataReceived:(NSDictionary *)cakeDictionary{
+    @try {
+        NSMutableArray *tempCakes = [[NSMutableArray alloc] init];
+        for (NSDictionary *cake in cakeDictionary) {
+            Cake *cakeObject = [[Cake alloc] init];
+            cakeObject.title = cake[@"title"];
+            cakeObject.details = cake[@"desc"];
+            cakeObject.imageURL = [NSURL URLWithString: cake[@"image"]];
+            
+            [tempCakes addObject:cakeObject];
+        }
+        
+        self.cakes = tempCakes;
+        [self.cakeTableView reloadData];
+        
+        [self downloadCakeImages];
+    }
+    @catch(NSException *e) {
+        [self displayErrorAlert];
+    }
+}
+
+- (void)cakeDataDownloaderFailed {
+    [self displayErrorAlert];
+}
+
+-(void)displayErrorAlert {
+    UIAlertController *cakeDataDownloadFailedAlert = [UIAlertController alertControllerWithTitle: @"Failed to get cake data!"
+                                                                                         message:@"Ensure connection to the internet and try again"
+                                                                                  preferredStyle:UIAlertControllerStyleAlert];
+    __weak MasterViewController *weakSelf = self;
+    
+    UIAlertAction* retry = [UIAlertAction actionWithTitle:@"Retry" style:UIAlertActionStyleDefault
+                                                  handler:^(UIAlertAction * action) {
+                                                      [weakSelf startCakeDataConnection];
+                                                  }];
+    
+    [cakeDataDownloadFailedAlert addAction:retry];
+    
+    [self presentViewController:cakeDataDownloadFailedAlert animated:YES completion:nil];
+}
+
+#pragma mark - Table View Delegates
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
     return 1;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return self.objects.count;
+    return self.cakes.count;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    CakeCell *cell = (CakeCell*)[tableView dequeueReusableCellWithIdentifier:@"Cell"];
+    CakeCell *cell = (CakeCell*)[tableView dequeueReusableCellWithIdentifier:@"CakeCell"];
     
-    NSDictionary *object = self.objects[indexPath.row];
-    cell.titleLabel.text = object[@"title"];
-    cell.descriptionLabel.text = object[@"desc"];
- 
+    Cake *cake = self.cakes[indexPath.row];
+    cell.titleLabel.text = cake.title;
+    cell.descriptionLabel.text = cake.details;
     
-    NSURL *aURL = [NSURL URLWithString:object[@"image"]];
-    NSData *data = [NSData dataWithContentsOfURL:aURL];
-    UIImage *image = [UIImage imageWithData:data];
-    [cell.cakeImageView setImage:image];
+    if (cake.image) {
+        [cell.cakeImageView setImage:cake.image];
+    } else {
+        UIImage *defaultImage = [UIImage imageNamed:@"DefaultImage.jpg"];
+        [cell.cakeImageView setImage:defaultImage];
+    }
     
     return cell;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath{
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-}
-
-- (void)getData{
-    
-    NSURL *url = [NSURL URLWithString:@"https://gist.githubusercontent.com/hart88/198f29ec5114a3ec3460/raw/8dd19a88f9b8d24c23d9960f3300d0c917a4f07c/cake.json"];
-    
-    NSData *data = [NSData dataWithContentsOfURL:url];
-    
-    NSError *jsonError;
-    id responseData = [NSJSONSerialization
-                       JSONObjectWithData:data
-                       options:kNilOptions
-                       error:&jsonError];
-    if (!jsonError){
-        self.objects = responseData;
-        [self.tableView reloadData];
-    } else {
-    }
-    
 }
 
 @end

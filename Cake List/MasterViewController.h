@@ -7,8 +7,12 @@
 //
 
 #import <UIKit/UIKit.h>
+#import "Cake.h"
+#import "CakeDataDownloader.h"
 
-@interface MasterViewController : UITableViewController
+@interface MasterViewController : UITableViewController <CakeDataHandlerDelegate>
+
+@property (strong, nonatomic) IBOutlet UITableView *cakeTableView;
 
 
 @end
